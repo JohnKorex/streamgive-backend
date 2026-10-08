@@ -1,3 +1,19 @@
+type RpcEvent = {
+  id: string;
+  ledger?: number;
+};
+
+type RpcClient = {
+  getEvents: (args: {
+    cursor?: string;
+    limit?: number;
+    startLedger?: number;
+    filters?: Array<Record<string, unknown>>;
+  }) => Promise<{
+    events?: RpcEvent[];
+    nextCursor?: string | null;
+  }>;
+};
 
 export function startIndexer(pollOnce: () => Promise<void>, intervalMs: number) {
   let timeoutId: NodeJS.Timeout | null = null;
@@ -8,7 +24,6 @@ export function startIndexer(pollOnce: () => Promise<void>, intervalMs: number) 
     if (isStopped) return;
 
     if (isPolling) {
-      // Skip this tick if a poll is already in flight
       scheduleNext();
       return;
     }
@@ -29,10 +44,8 @@ export function startIndexer(pollOnce: () => Promise<void>, intervalMs: number) 
     timeoutId = setTimeout(poll, intervalMs);
   };
 
-  // Kick off the initial poll
-  poll();
+  void poll();
 
-  // Return stop function that cancels any pending timer
   return () => {
     isStopped = true;
     if (timeoutId) {
@@ -42,26 +55,27 @@ export function startIndexer(pollOnce: () => Promise<void>, intervalMs: number) 
   };
 }
 
-export async function pollOnce(rpcClient: any, processEvent: (event: any) => Promise<void>) {
-  let currentCursor = await getStoredCursor();
-  const PAGE_LIMIT = 100; // Adjust according to your RPC client configuration
+export async function pollOnce(
+  rpcClient: RpcClient,
+  processEvent: (event: RpcEvent) => Promise<void>,
+): Promise<void> {
+  let currentCursor = '';
+  const PAGE_LIMIT = 100;
   let hasMore = true;
 
   while (hasMore) {
     const response = await rpcClient.getEvents({
-      cursor: currentCursor,
+      cursor: currentCursor || undefined,
       limit: PAGE_LIMIT,
     });
 
-    const events = response.events || [];
+    const events = response.events ?? [];
 
-    // Process each event in the current page sequentially
     for (const event of events) {
       await processEvent(event);
-      currentCursor = event.id; // Update cursor to latest processed event
+      currentCursor = event.id;
     }
 
-    // If the page size is less than the limit, or no next cursor is provided, we've reached the end
     if (events.length < PAGE_LIMIT || !response.nextCursor) {
       hasMore = false;
     } else {
