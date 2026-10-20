@@ -102,6 +102,24 @@ export function buildServer(options?: BuildServerOptions) {
   registerRequestIdHeader(app);
   app.register(registerCompression);
 
+  // Capture the raw request body before Fastify parses it so the admin
+  // signature middleware can hash the exact bytes the client sent.
+  // `request.rawBody` is not populated by default in Fastify; we attach
+  // it via a preParsing hook so it's available by the time any route
+  // handler (or preHandler hook like requireAdminSignature) runs.
+  app.addHook('preParsing', async (request, _reply, payload) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of payload) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+    const raw = Buffer.concat(chunks);
+    (request as typeof request & { rawBody: Buffer }).rawBody = raw;
+    // Re-create a readable stream from the captured bytes so Fastify can
+    // still parse the body normally after we've consumed the original stream.
+    const { Readable } = await import('node:stream');
+    return Readable.from(raw);
+  });
+
   app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error(error);
     const candidateStatusCode =
