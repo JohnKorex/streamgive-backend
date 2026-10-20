@@ -6,7 +6,10 @@ import { buildServer } from '../../src/server.js';
 import { signAdminRequest } from '../helpers/adminAuth.js';
 
 // Three independent keypairs: one for the legacy single-key var, one that
-// only ever appears in the list, and one configured nowhere.
+// only ever appears in the list, and one configured nowhere. Keeping the
+// third one lets the "rejected" case be a genuine allow-list miss rather
+// than a signature that happened to fail verification, which a 401 alone
+// can't tell apart.
 const legacyAdmin = Keypair.random();
 const listedAdmin = Keypair.random();
 const unlistedAdmin = Keypair.random();
@@ -74,13 +77,19 @@ describe('requireAdminSignature', () => {
   });
 
   it('tolerates spaces and blank entries in ADMIN_ADDRESSES', async () => {
+    // The kind of list a human actually pastes.
     configureAdmins(undefined, ` ${listedAdmin.publicKey()} , ,`);
-    await expect(listApplicationsAs(listedAdmin)).resolves.toMatchObject({ statusCode: 200 });
+
+    const listed = await listApplicationsAs(listedAdmin);
+
+    expect(listed.statusCode).toBe(200);
   });
 
   it('rejects a self-signed request from an address that is not an admin', async () => {
     configureAdmins(legacyAdmin.publicKey(), listedAdmin.publicKey());
 
+    // The signature is valid for unlistedAdmin's own key -- it still isn't
+    // an admin, so the allow-list check has to be what rejects it.
     const response = await listApplicationsAs(unlistedAdmin);
 
     expect(response.statusCode).toBe(401);
@@ -94,6 +103,44 @@ describe('requireAdminSignature', () => {
 
     expect(response.statusCode).toBe(503);
     expect(response.body.error).toBe('admin_auth_not_configured');
+  });
+
+  it('rejects non-numeric timestamps', async () => {
+    configureAdmins(legacyAdmin.publicKey());
+
+    const app = buildServer();
+    const headers = signAdminRequest(legacyAdmin, 'GET', '/v1/ngo-applications');
+    headers['x-admin-timestamp'] = 'abc';
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/ngo-applications',
+      headers,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error).toBe('stale_signature');
+
+    await app.close();
+  });
+
+  it('rejects malformed admin addresses', async () => {
+    configureAdmins(legacyAdmin.publicKey());
+
+    const app = buildServer();
+    const headers = signAdminRequest(legacyAdmin, 'GET', '/v1/ngo-applications');
+    headers['x-admin-address'] = 'not-a-stellar-address';
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/ngo-applications',
+      headers,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error).toBe('unauthorized');
+
+    await app.close();
   });
 
   it('rejects a stale signature (timestamp outside the ±5-min window)', async () => {
