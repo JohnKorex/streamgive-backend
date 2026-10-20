@@ -107,7 +107,19 @@ export function buildServer(options?: BuildServerOptions) {
   // `request.rawBody` is not populated by default in Fastify; we attach
   // it via a preParsing hook so it's available by the time any route
   // handler (or preHandler hook like requireAdminSignature) runs.
+  //
+  // Only consume the payload for methods that can carry a body. For
+  // bodyless methods (GET, HEAD, DELETE, OPTIONS) the payload stream may
+  // not emit an 'end' event in all Fastify versions, causing the
+  // `for await` to hang. Bodyless requests get an empty Buffer so the
+  // body-hash in the admin signature is always the SHA-256 of zero bytes.
   app.addHook('preParsing', async (request, _reply, payload) => {
+    const bodylessMethods = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS']);
+    if (bodylessMethods.has(request.method)) {
+      (request as typeof request & { rawBody: Buffer }).rawBody = Buffer.alloc(0);
+      return payload;
+    }
+
     const chunks: Buffer[] = [];
     for await (const chunk of payload) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));

@@ -19,7 +19,7 @@ describe('CORS configuration', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/v1/health',
+      url: '/health',
       headers: {
         origin: 'http://localhost:3001',
       },
