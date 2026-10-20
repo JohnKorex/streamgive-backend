@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import { Prisma } from '../generated/prisma/client.js';
 import { prisma } from '../db.js';
 import { sendPublicCacheable } from './cacheable.js';
 import { requireAdminSignature } from '../middleware/adminAuth.js';
@@ -181,11 +182,19 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
     }
     const { limit, cursor, sort, q } = parsedQuery.data;
 
+    // @prisma/adapter-pg sends string parameters as type `text`. PostgreSQL
+    // cannot implicitly cast `text` to `uuid` in parameterized comparisons
+    // ("operator does not exist: text = uuid"), so we build explicit uuid
+    // fragments using Prisma.sql rather than relying on an inline `::uuid` cast.
+    const cursorUuid = cursor
+      ? Prisma.sql`${cursor}::uuid`
+      : Prisma.sql`NULL::uuid`;
+
     const rows = await prisma.$queryRaw<NgoListRow[]>`
       WITH cursor_ngo AS (
         SELECT id, COALESCE(NULLIF(display_name, ''), name) AS public_name, created_at
         FROM ngos
-        WHERE id = ${cursor ?? null}::uuid
+        WHERE id = ${cursorUuid}
       )
       SELECT
         ngo.id,
@@ -202,7 +211,7 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
           OR COALESCE(NULLIF(ngo.display_name, ''), ngo.name) ILIKE '%' || ${q ?? null} || '%'
         )
         AND (
-          ${cursor ?? null}::uuid IS NULL
+          ${cursorUuid} IS NULL
           OR EXISTS (
             SELECT 1
             FROM cursor_ngo AS cursor_row
