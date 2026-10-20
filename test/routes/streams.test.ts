@@ -232,7 +232,7 @@ describe('GET /v1/streams', () => {
     const app = buildServer();
 
     const donor = await prisma.donor.create({ data: { address: fakeAddress('A') } });
-    const ngo = await prisma.go.create({
+    const ngo = await prisma.ngo.create({
       data: { ownerAddress: fakeAddress('B'), name: 'NGO', verified: true },
     });
     const otherNgo = await prisma.ngo.create({
@@ -324,10 +324,10 @@ describe('GET /v1/streams', () => {
     const app = buildServer();
 
     const donor = await prisma.donor.create({ data: { address: fakeAddress('A') } });
-    const ngo = await prisma.go.create({
+    const ngo = await prisma.ngo.create({
       data: { ownerAddress: fakeAddress('B'), name: 'Target NGO', verified: true },
     });
-    const otherNgo = await prisma.go.create({
+    const otherNgo = await prisma.ngo.create({
       data: { ownerAddress: fakeAddress('C'), name: 'Other NGO', verified: true },
     });
 
@@ -371,7 +371,7 @@ describe('GET /v1/streams', () => {
     const app = buildServer();
 
     const donor = await prisma.donor.create({ data: { address: fakeAddress('A') } });
-    const ngo = await prisma.go.create({
+    const ngo = await prisma.ngo.create({
       data: { ownerAddress: fakeAddress('B'), name: 'NGO', verified: true },
     });
 
@@ -546,7 +546,7 @@ describe('GET /v1/streams/:id', () => {
       },
     });
 
-    const response = await app.inject({ method: 'GET', url: `/streams/${stream.id}` });
+    const response = await app.inject({ method: 'GET', url: `/v1/streams/${stream.id}` });
     expect(response.statusCode).toBe(200);
 
     const body = response.json();
@@ -574,7 +574,7 @@ describe('GET /v1/streams/:id', () => {
       },
     });
 
-    const response = await app.inject({ method: 'GET', url: `/streams/${stream.id}` });
+    const response = await app.inject({ method: 'GET', url: `/v1/streams/${stream.id}` });
     expect(response.statusCode).toBe(200);
 
     const body = response.json();
@@ -609,7 +609,7 @@ describe('GET /v1/streams/:id', () => {
 
     const donor = await prisma.donor.create({ data: { address: fakeAddress('A') } });
     // Placeholder NGO: name is empty, not yet registered on-chain.
-    const ngo = await prisma.go.create({
+    const ngo = await prisma.ngo.create({
       data: { ownerAddress: fakeAddress('B'), name: '', verified: false },
     });
     const stream = await prisma.stream.create({
@@ -637,7 +637,7 @@ describe('GET /v1/streams/:id', () => {
   });
 });
 
-describe('GET /streams/:id/activity', () => {
+describe('GET /v1/streams/:id/activity', () => {
   afterEach(async () => {
     await resetDb();
   });
@@ -646,7 +646,7 @@ describe('GET /streams/:id/activity', () => {
     const app = buildServer();
 
     const donor = await prisma.donor.create({ data: { address: fakeAddress('A') } });
-    const ngo = await prisma.go.create({
+    const ngo = await prisma.ngo.create({
       data: { ownerAddress: fakeAddress('B'), name: 'NGO', verified: true },
     });
     const stream = await prisma.stream.create({
@@ -662,24 +662,30 @@ describe('GET /streams/:id/activity', () => {
     });
 
     // Created oldest first so the response order is CANCELLED -> WITHDRAWAL -> TOP_UP.
-    for (const type of ['TOP_UP', 'WITHDRAWAL', 'CANCELLED'] as const) {
+    for (const type of ['created', 'withdraw', 'cancel'] as const) {
       await prisma.streamEvent.create({
-        data: { streamId: stream.id, type, amount: '10' },
+        data: {
+          streamId: stream.onChainId,
+          type,
+          ledger: 100,
+          txHash: 'a'.repeat(64),
+          payload: {},
+        },
       });
     }
 
     const response = await app.inject({
       method: 'GET',
-      url: `/streams/${stream.id}/activity`,
+      url: `/v1/streams/${stream.id}/activity`,
     });
     expect(response.statusCode).toBe(200);
 
     const body = response.json();
     expect(body.events).toHaveLength(3);
     expect(body.events.map((e: { type: string }) => e.type)).toEqual([
-      'CANCELLED',
-      'WITHDRAWAL',
-      'TOP_UP',
+      'cancel',
+      'withdraw',
+      'created',
     ]);
     expect(body.hasMore).toBe(false);
 
@@ -703,7 +709,7 @@ describe('GET /streams/:id/activity', () => {
         withdrawn: '0',
       },
     });
-    const url = `/streams/${stream.id}/activity`;
+    const url = `/v1/streams/${stream.id}/activity`;
 
     const first = await app.inject({ method: 'GET', url });
     const etag = first.headers.etag;
@@ -741,33 +747,39 @@ describe('GET /streams/:id/activity', () => {
       },
     });
 
-    for (const type of ['TOP_UP', 'WITHDRAWAL', 'CANCELLED'] as const) {
+    for (const type of ['created', 'withdraw', 'cancel'] as const) {
       await prisma.streamEvent.create({
-        data: { streamId: stream.id, type, amount: '10' },
+        data: {
+          streamId: stream.onChainId,
+          type,
+          ledger: 100,
+          txHash: 'a'.repeat(64),
+          payload: {},
+        },
       });
     }
 
     const firstPage = await app.inject({
       method: 'GET',
-      url: `/streams/${stream.id}/activity?limit=2`,
+      url: `/v1/streams/${stream.id}/activity?limit=2`,
     });
     expect(firstPage.statusCode).toBe(200);
     const firstBody = firstPage.json();
     expect(firstBody.events).toHaveLength(2);
     expect(firstBody.hasMore).toBe(true);
     expect(firstBody.events.map((e: { type: string }) => e.type)).toEqual([
-      'CANCELLED',
-      'WITHDRAWAL',
+      'cancel',
+      'withdraw',
     ]);
 
     const secondPage = await app.inject({
       method: 'GET',
-      url: `/streams/${stream.id}/activity?limit=2&cursor=${firstBody.events[1].id}`,
+      url: `/v1/streams/${stream.id}/activity?limit=2&cursor=${firstBody.events[1].id}`,
     });
     expect(secondPage.statusCode).toBe(200);
     const secondBody = secondPage.json();
     expect(secondBody.events).toHaveLength(1);
-    expect(secondBody.events[0].type).toBe('TOP_UP');
+    expect(secondBody.events[0].type).toBe('created');
     expect(secondBody.hasMore).toBe(false);
 
     await app.close();
@@ -778,7 +790,7 @@ describe('GET /streams/:id/activity', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/streams/00000000-0000-0000-0000-000000000000/activity',
+      url: '/v1/streams/00000000-0000-0000-0000-000000000000/activity',
     });
     expect(response.statusCode).toBe(404);
 
@@ -790,7 +802,7 @@ describe('GET /streams/:id/activity', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/streams/not-a-uuid/activity',
+      url: '/v1/streams/not-a-uuid/activity',
     });
     expect(response.statusCode).toBe(400);
 
