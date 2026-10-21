@@ -182,19 +182,20 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
     }
     const { limit, cursor, sort, q } = parsedQuery.data;
 
-    // @prisma/adapter-pg sends string parameters as type `text`. PostgreSQL
-    // cannot implicitly cast `text` to `uuid` in parameterized comparisons
-    // ("operator does not exist: text = uuid"), so we build explicit uuid
-    // fragments using Prisma.sql rather than relying on an inline `::uuid` cast.
-    const cursorUuid = cursor
-      ? Prisma.sql`${cursor}::uuid`
-      : Prisma.sql`NULL::uuid`;
+    // @prisma/adapter-pg sends string parameters as type `text`. The ngos.id
+    // column is also `text` in Postgres (Prisma maps String @id to text, not
+    // the native uuid type), so both sides of the comparison are already text.
+    // Casting to ::uuid would produce "operator does not exist: text = uuid".
+    // Use an explicit ::text cast on the parameter to keep the types aligned.
+    const cursorFilter = cursor
+      ? Prisma.sql`${cursor}::text`
+      : Prisma.sql`NULL::text`;
 
     const rows = await prisma.$queryRaw<NgoListRow[]>`
       WITH cursor_ngo AS (
         SELECT id, COALESCE(NULLIF(display_name, ''), name) AS public_name, created_at
         FROM ngos
-        WHERE id = ${cursorUuid}
+        WHERE id = ${cursorFilter}
       )
       SELECT
         ngo.id,
@@ -211,7 +212,7 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
           OR COALESCE(NULLIF(ngo.display_name, ''), ngo.name) ILIKE '%' || ${q ?? null} || '%'
         )
         AND (
-          ${cursorUuid} IS NULL
+          ${cursorFilter} IS NULL
           OR EXISTS (
             SELECT 1
             FROM cursor_ngo AS cursor_row
@@ -322,7 +323,7 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'not_found' });
     }
 
-    const rows = await prisma.donor.findMany({
+    const donorQuery = prisma.donor.findMany({
       where: { streams: { some: { ngoId } } },
       orderBy: { id: 'asc' },
       take: limit + 1,
@@ -336,6 +337,21 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     });
+    type DonorRow = Awaited<typeof donorQuery>[number];
+
+    let rows: DonorRow[];
+    try {
+      rows = await donorQuery;
+    } catch (err: unknown) {
+      // Prisma throws P2025 (NotFoundError) when the cursor record does not
+      // exist. Treat that as "cursor is past the end of the list" and return
+      // an empty page rather than a 400/500.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        rows = [];
+      } else {
+        throw err;
+      }
+    }
 
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
