@@ -97,4 +97,34 @@ describe('CORS configuration', () => {
 
     await app.close();
   });
+
+  it('exposes Retry-After and the rate-limit headers to browser clients', async () => {
+    process.env.CORS_ORIGINS = 'http://localhost:3001';
+    const app = buildServer();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/metrics',
+      headers: {
+        origin: 'http://localhost:3001',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const exposedHeaders = String(response.headers['access-control-expose-headers'])
+      .split(',')
+      .map((header) => header.trim().toLowerCase());
+
+    expect(exposedHeaders).toEqual(
+      expect.arrayContaining([
+        'x-request-id',
+        'retry-after',
+        'x-ratelimit-limit',
+        'x-ratelimit-remaining',
+        'x-ratelimit-reset',
+      ]),
+    );
+
+    await app.close();
+  });
 });

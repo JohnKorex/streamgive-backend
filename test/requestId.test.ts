@@ -57,36 +57,36 @@ describe('request id correlation', () => {
     expect(response.statusCode).toBe(200);
   });
 
-  it('handles x-request-id with control characters', async () => {
+  it('replaces x-request-id values containing control characters', async () => {
     const app = buildTestServer();
     apps.push(app);
 
-    const idWithControl = 'request\x00\x01\x1f-id';
-    // Fastify/Node.js may strip, reject, or error on headers with control
-    // characters. We only verify the request completes without hanging.
     const response = await app.inject({
       method: 'GET',
       url: '/test',
-      headers: { 'x-request-id': idWithControl },
+      headers: { 'x-request-id': 'request\x00\x01\x1f-id' },
     });
 
-    expect(response.statusCode).toBeDefined();
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-request-id']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
-  it('handles x-request-id with newline characters', async () => {
+  it('replaces x-request-id values containing newlines', async () => {
     const app = buildTestServer();
     apps.push(app);
 
-    const idWithNewline = 'request\nid\r\ninjection';
-    // Headers with newlines are stripped or rejected by Fastify to prevent
-    // header injection. We only verify the request completes without hanging.
     const response = await app.inject({
       method: 'GET',
       url: '/test',
-      headers: { 'x-request-id': idWithNewline },
+      headers: { 'x-request-id': 'request\nid\r\ninjection' },
     });
 
-    expect(response.statusCode).toBeDefined();
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-request-id']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
   it('handles empty string x-request-id', async () => {
