@@ -1,24 +1,23 @@
-import { Keypair } from '@stellar/stellar-sdk';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
 
 import { prisma } from '../../src/db.js';
 
 /** Truncates every table. Call between tests so fixtures never leak across them. */
 export async function resetDb(): Promise<void> {
   try {
-    // Attempt to truncate tables used in tests. If the database is not
-    // available (e.g. Docker not running locally) this will fail; catch
-    // the error and rethrow a more actionable message so CI / local runs
-    // are easier to debug.
+    await prisma.notificationLog.deleteMany();
+    await prisma.streamEvent.deleteMany();
     await prisma.stream.deleteMany();
     await prisma.donor.deleteMany();
     await prisma.ngo.deleteMany();
     await prisma.ngoApplication.deleteMany();
+    await prisma.ngoApplicationChallenge.deleteMany();
     await prisma.indexerCheckpoint.deleteMany();
+    await prisma.indexerDeadLetter.deleteMany();
   } catch (err) {
-    // Preserve the original error message but add context for developers.
-    const message = `resetDb failed: ${String(err)}\n` +
+    const message =
+      `resetDb failed: ${String(err)}\n` +
       'Ensure the test Postgres is running and DATABASE_URL in .env.test is correct.';
-    // Throw a new Error to make the failure obvious in test output.
     throw new Error(message);
   }
 }
@@ -38,4 +37,9 @@ export async function resetDb(): Promise<void> {
 export function fakeAddress(distinguishingChar: string): string {
   const seed = Buffer.alloc(32, distinguishingChar.toUpperCase().charCodeAt(0));
   return Keypair.fromRawEd25519Seed(seed).publicKey();
+}
+/** A checksum-valid Stellar contract address derived deterministically for tests. */
+export function fakeContractAddress(distinguishingChar: string): string {
+  const contractId = Buffer.alloc(32, distinguishingChar.toUpperCase().charCodeAt(0));
+  return StrKey.encodeContract(contractId);
 }
