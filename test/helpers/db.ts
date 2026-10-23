@@ -18,7 +18,7 @@ export async function resetDb(): Promise<void> {
     const message =
       `resetDb failed: ${String(err)}\n` +
       'Ensure the test Postgres is running and DATABASE_URL in .env.test is correct.';
-    throw new Error(message);
+    throw new Error(message, { cause: err });
   }
 }
 

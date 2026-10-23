@@ -200,6 +200,7 @@ export function buildServer(options?: BuildServerOptions) {
   });
 
   app.register(rateLimit, {
+    global: true,
     max: Number(process.env.RATE_LIMIT_MAX ?? 100),
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
     // Spell the headers out instead of leaning on the plugin's defaults:
@@ -314,13 +315,13 @@ export function buildServer(options?: BuildServerOptions) {
    * @auth Public
    * @returns 200 `{ status: "ok" }`; 503 on DB failure.
    */
-  app.get('/health', async (request, reply) => {
+  app.get('/health', async (_request, reply) => {
     try {
       await withTimeout(prisma.$queryRaw`SELECT 1`, HEALTH_CHECK_TIMEOUT_MS);
-      return reply.code(200).send({ status: 'ok' });
+      return reply.code(200).send({ status: 'ok', db: 'ok' });
     } catch (error) {
-      request.log.error(error);
-      return reply.code(503).send({ status: 'error' });
+      _request.log.error(error);
+      return reply.code(503).send({ status: 'error', db: 'error' });
     }
   });
 
@@ -349,10 +350,16 @@ export function buildServer(options?: BuildServerOptions) {
       }
 
       const lag = latestLedger - checkpointLedger;
-      const threshold = parseInt(process.env.INDEXER_LAG_THRESHOLD ?? '100', 10);
+      const thresholdRaw = process.env.INDEXER_LAG_THRESHOLD ?? '100';
+      const threshold = Number.parseInt(thresholdRaw, 10);
 
-      if (lag > threshold) {
-        return reply.code(503).send({ status: 'error', reason: 'indexer_lagging', lag, threshold });
+      if (Number.isNaN(threshold) || lag > threshold) {
+        return reply.code(503).send({
+          status: 'error',
+          reason: 'indexer_lagging',
+          lag,
+          threshold: thresholdRaw,
+        });
       }
 
       return { status: 'ok', lag, latestLedger, checkpointLedger };
