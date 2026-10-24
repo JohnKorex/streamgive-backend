@@ -47,7 +47,6 @@ app.listen({ port, host: '0.0.0.0' }).catch((err) => {
   process.exit(1);
 });
 
-
 // SIGTERM is what Docker/Kubernetes send on `docker stop`/pod termination;
 // SIGINT is Ctrl+C locally. Without this, both just kill the process
 // mid-request instead of finishing in-flight work and closing the DB pool.

@@ -6,7 +6,7 @@ import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import Fastify from 'fastify';
-import type { FastifyError } from 'fastify';
+import type { FastifyError, FastifyReply } from 'fastify';
 
 import { prisma } from './db.js';
 import { recordHttpRequest, renderMetrics } from './metrics.js';
@@ -17,9 +17,11 @@ import { indexerStatusRoutes } from './routes/indexerStatus.js';
 import { getLatestLedgerSequence } from './stellar/rpc.js';
 import { ngoApplicationRoutes } from './routes/ngoApplications.js';
 import { ngoRoutes } from './routes/ngos.js';
+import { deadLetterRoutes } from './routes/deadLetters.js';
 import { streamRoutes } from './routes/streams.js';
 import { registerRequestIdHeader, requestIdOptions } from './requestId.js';
 import { registerCompression } from './plugins/compression.js';
+import { registerLogRetention } from './maintenance/logRetention.js';
 
 // pino-pretty runs its formatting on a separate worker thread; spawning
 // one per Fastify instance is fine for a single long-running process, but
@@ -215,6 +217,16 @@ export function buildServer(options?: BuildServerOptions) {
     },
   });
 
+  // Root routes are declared before the limiter plugin's global onRoute hook runs.
+  const rootRateLimitedRoutes = new Set(['/metrics', '/health', '/health/ready']);
+  app.addHook('onRequest', async (request, reply) => {
+    if (rootRateLimitedRoutes.has(request.routeOptions.url ?? '')) {
+      await request.server.rateLimit
+        .call(request.server)
+        .call(request.server, request, reply);
+    }
+  });
+
   app.addHook('onRequest', async (request) => {
     requestStartedAt.set(request, process.hrtime.bigint());
   });
@@ -315,15 +327,18 @@ export function buildServer(options?: BuildServerOptions) {
    * @auth Public
    * @returns 200 `{ status: "ok" }`; 503 on DB failure.
    */
-  app.get('/health', async (_request, reply) => {
-    try {
-      await withTimeout(prisma.$queryRaw`SELECT 1`, HEALTH_CHECK_TIMEOUT_MS);
-      return reply.code(200).send({ status: 'ok', db: 'ok' });
-    } catch (error) {
-      _request.log.error(error);
-      return reply.code(503).send({ status: 'error', db: 'error' });
-    }
-  });
+  const healthHandler = async (_req: unknown, reply: FastifyReply) => {
+    const dbResult = await Promise.allSettled([
+      withTimeout(prisma.$queryRaw`SELECT 1`, HEALTH_CHECK_TIMEOUT_MS),
+    ]);
+
+    const db = dbResult[0].status === 'fulfilled' ? 'ok' : 'error';
+    const status = db === 'ok' ? 'ok' : 'error';
+    return reply.code(status === 'ok' ? 200 : 503).send({ status, db });
+  };
+
+  app.get('/health', healthHandler);
+  app.get('/v1/health', healthHandler);
 
   /**
    * Readiness probe — checks the database, the Stellar RPC node, and indexer
@@ -350,16 +365,11 @@ export function buildServer(options?: BuildServerOptions) {
       }
 
       const lag = latestLedger - checkpointLedger;
-      const thresholdRaw = process.env.INDEXER_LAG_THRESHOLD ?? '100';
-      const threshold = Number.parseInt(thresholdRaw, 10);
+      const parsedThreshold = parseInt(process.env.INDEXER_LAG_THRESHOLD ?? '100', 10);
+      const threshold = Number.isNaN(parsedThreshold) ? 0 : parsedThreshold;
 
-      if (Number.isNaN(threshold) || lag > threshold) {
-        return reply.code(503).send({
-          status: 'error',
-          reason: 'indexer_lagging',
-          lag,
-          threshold: thresholdRaw,
-        });
+      if (lag > threshold) {
+        return reply.code(503).send({ status: 'error', reason: 'indexer_lagging', lag, threshold });
       }
 
       return { status: 'ok', lag, latestLedger, checkpointLedger };
@@ -430,6 +440,8 @@ export function buildServer(options?: BuildServerOptions) {
   app.register(impactRoutes, apiPrefix);
   app.register(ngoApplicationRoutes, apiPrefix);
   app.register(indexerStatusRoutes, apiPrefix);
+  app.register(deadLetterRoutes, apiPrefix);
+  registerLogRetention(app);
 
   return app;
 }
