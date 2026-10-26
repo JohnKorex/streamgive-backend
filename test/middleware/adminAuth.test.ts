@@ -1,7 +1,8 @@
 import { Keypair } from '@stellar/stellar-sdk';
+import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { sep53Hash } from '../../src/middleware/adminAuth.js';
+import { requireAdminSignature, sep53Hash } from '../../src/middleware/adminAuth.js';
 import { buildServer } from '../../src/server.js';
 import { signAdminRequest } from '../helpers/adminAuth.js';
 
@@ -50,6 +51,36 @@ async function listApplicationsAs(keypair: Keypair) {
 }
 
 describe('requireAdminSignature', () => {
+  it('accepts distinct admin requests made in the same millisecond', async () => {
+    configureAdmins(legacyAdmin.publicKey());
+    const app = Fastify();
+    app.get('/first', { preHandler: requireAdminSignature }, async () => ({ ok: true }));
+    app.post('/second', { preHandler: requireAdminSignature }, async () => ({ ok: true }));
+
+    const timestamp = Date.now().toString();
+    const first = await app.inject({
+      method: 'GET',
+      url: '/first',
+      headers: signAdminRequest(legacyAdmin, 'GET', '/first', timestamp),
+    });
+    const replay = await app.inject({
+      method: 'GET',
+      url: '/first',
+      headers: signAdminRequest(legacyAdmin, 'GET', '/first', timestamp),
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: '/second',
+      headers: signAdminRequest(legacyAdmin, 'POST', '/second', timestamp),
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json().error).toBe('replayed_signature');
+    expect(second.statusCode).toBe(200);
+    await app.close();
+  });
+
   it('accepts the single admin configured via ADMIN_ADDRESS', async () => {
     configureAdmins(legacyAdmin.publicKey());
 
