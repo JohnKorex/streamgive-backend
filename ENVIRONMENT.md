@@ -28,10 +28,9 @@ Admin requests are authenticated with a signed timestamp header. The timestamp *
 | `INDEXER_MAX_EVENTS_PER_POLL` | No | RPC default | Positive integer limiting events fetched and processed per poll. The event cursor is checkpointed so the next poll resumes after the last handled event. |
 | `INDEXER_LAG_THRESHOLD` | No | `100` | Maximum ledger lag allowed before the `/health/ready` check reports `503 Service Unavailable` with `indexer_lagging`. |
 | `CORS_ORIGINS` | No | `http://localhost:3001` | Comma-separated origins allowed to call this API from a browser. |
-| `ADMIN_ADDRESS` | No** | — (empty) | Stellar public key (`G...`) that must sign requests to admin routes, including `/ngo-applications` review. Admin routes return `503` until either this or `ADMIN_ADDRESSES` is set. Should match the `admin` configured on the deployed contracts. |
-| `ADMIN_ADDRESSES` | No** | — (empty) | Comma-separated list of additional Stellar public keys (`G...`) allowed to sign admin requests. Unioned with `ADMIN_ADDRESS` to support key rotation or multiple operators. |
-| `ADMIN_TIMESTAMP_UNIT` | No | `ms` | Unit expected for the admin signature timestamp header. Only Unix milliseconds are supported; seconds-based timestamps are rejected with a `timestamp_unit_mismatch` error. |
-| `NOTIFY_WEBHOOK_URL` | No | — (empty) | Legacy single-destination fallback for all event types, used only while there are no enabled rows in `notification_endpoints`. See [`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md#webhook-destinations) for per-destination configuration. |
+| `ADMIN_ADDRESS` | No** | — (empty) | One Stellar public key (`G...`) allowed to sign admin requests. It is combined with `ADMIN_ADDRESSES`; it does not have to be the only allowed signer. |
+| `ADMIN_ADDRESSES` | No** | — (empty) | Comma-separated additional Stellar public keys (`G...`) allowed to sign admin requests. Values are trimmed, blank entries ignored, and duplicates removed. Set either this or `ADMIN_ADDRESS`; admin routes return `503 admin_auth_not_configured` only when both are empty. |
+| `NOTIFY_WEBHOOK_URL` | No | — (empty) | If set, notification events across the platform—stream lifecycle events (`stream_created`, `stream_withdrawn`, `stream_cancelled`), NGO status updates (`ngo_approved`, `ngo_revoked`), and application events (`application_submitted`, `application_reviewed`)—are POSTed here as JSON. |
 | `NOTIFY_WEBHOOK_TIMEOUT_MS` | No | `3000` | Maximum duration in milliseconds for a webhook request. Invalid or non-positive values use the default. |
 | `NOTIFY_WEBHOOK_SECRET` | No | — (empty) | If set, every webhook POST carries an `x-streamgive-signature` header containing the lowercase hexadecimal HMAC-SHA256 of the raw request body, keyed with this value, so receivers can reject forged notifications. The header is omitted when this is unset. See the README's notification section for the verification recipe. |
 | `METRICS_TOKEN` | No | — (empty) | If set, `GET /metrics` requires `Authorization: Bearer <token>`. Missing or incorrect tokens receive `401 { "error": "unauthorized" }`. Unset leaves `/metrics` public. |
@@ -51,4 +50,4 @@ Admin requests are authenticated with a signed timestamp header. The timestamp *
 
 \* Required for the indexer to do anything; the app runs fine without them, but it will not see on-chain events.
 
-\** Required for the admin review endpoints to work; either `ADMIN_ADDRESS` or `ADMIN_ADDRESSES` must be set. Everything else in the API works without them.
+\** Required for admin-authenticated routes; configure at least one address using `ADMIN_ADDRESS` and/or `ADMIN_ADDRESSES`. Admin timestamps always use Unix milliseconds; there is no `ADMIN_TIMESTAMP_UNIT` runtime setting. Everything else in the API works without the admin address configuration.

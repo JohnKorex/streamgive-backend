@@ -13,18 +13,24 @@ Routes marked **Admin signature** require all three headers:
 - `x-admin-address`: an allowed Stellar public key configured by
   `ADMIN_ADDRESS` or `ADMIN_ADDRESSES`.
 - `x-admin-timestamp`: the current Unix timestamp in milliseconds.
-- `x-admin-signature`: the SEP-53 Stellar message signature for
-  `METHOD:PATH_AND_QUERY:TIMESTAMP`, where the timestamp is the exact header
-  value. For example, sign `GET:/v1/ngo-applications?limit=20:1760000000000`
-  for that request.
+- `x-admin-signature`: a base64 or hexadecimal Ed25519 signature over the
+  SEP-53 hash of `METHOD:URL:TIMESTAMP:BODY_HASH`, where the timestamp is the
+  exact header value. `URL` includes the `/v1` prefix and query string; for
+  example, `/v1/ngo-applications?limit=20`. `BODY_HASH` is the lowercase hex
+  SHA-256 of the raw request body, or the SHA-256 of the empty body for
+  bodyless requests. SEP-53 hashes the UTF-8 bytes of
+  `Stellar Signed Message:\n` followed by the complete payload before the
+  wallet signs it with its generic message-signing operation.
 
 The signed message must use the generic Stellar message-signing operation.
 Signatures expire when the timestamp is more than five minutes from the
 server's clock, and a signature cannot be replayed. Admin routes return
-`401` for missing or invalid authentication, `503` with
-`{"error":"admin_auth_not_configured"}` if no admin address is configured,
-and `401` with `{"error":"timestamp_unit_mismatch"}` for a timestamp in
-seconds.
+`401 unauthorized` for missing headers, an unlisted address, or an invalid
+signature; `401 stale_signature` for a malformed or out-of-window timestamp;
+`401 timestamp_unit_mismatch` for a seconds-based timestamp; and
+`401 replayed_signature` when the same address, method, URL, and timestamp
+are reused. They return `503 admin_auth_not_configured` when both admin
+address settings are empty. See the HTTP error contract below for examples.
 
 Routes marked **Public** do not require authentication. Public directory,
 stream, and impact endpoints may return `304 Not Modified` when the
