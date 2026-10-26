@@ -730,7 +730,21 @@ pages are stable when several applications share a creation time.
 Returns one application record. Returns `400 {"error":"invalid_request"}`
 for an invalid ID and `404 {"error":"not_found"}` if none exists. Example
 response: the application object shown in the `POST /v1/ngo-applications`
-example, with its current status and review note.
+example, with its current status, review note, and `emailVerifiedAt` (`null`
+until the submitted contact address is verified).
+
+### `GET /v1/ngo-applications/verify-contact-email?token={token}`
+
+**Auth:** Public; requires the single-use token sent to the application contact
+email. Tokens expire after 24 hours. Returns `200` when verified or
+`400 {"error":"invalid_or_expired_token"}` when invalid, expired, or already
+used.
+
+### `POST /v1/ngo-applications/{id}/contact-email-verification`
+
+**Auth:** Admin signature. Sends a fresh verification link for an application
+that has not been verified. Returns `202` with a generic response whether the
+application is eligible or not, to avoid disclosing application status.
 
 ### `POST /v1/ngo-applications/{id}/approve`
 
@@ -745,6 +759,8 @@ Returns `400 {"error":"invalid_request"}` for invalid input,
 `409 {"error":"already_reviewed"}` if it is no longer pending. Example
 response: the application object shown in the `POST /v1/ngo-applications`
 example, with `status` set to `APPROVED` and `reviewNote` set if supplied.
+Approval is available only after the contact email is verified; otherwise the
+endpoint returns `409 {"error":"contact_email_unverified"}`.
 
 ### `POST /v1/ngo-applications/{id}/reject`
 
@@ -759,6 +775,8 @@ Returns `400 {"error":"invalid_request"}` for invalid input,
 `409 {"error":"already_reviewed"}` if it is no longer pending. Example
 response: the application object shown in the `POST /v1/ngo-applications`
 example, with `status` set to `REJECTED` and `reviewNote` set if supplied.
+Review is available only after the contact email is verified; otherwise the
+endpoint returns `409 {"error":"contact_email_unverified"}`.
 
 ## Indexer
 

@@ -44,9 +44,10 @@ Admin requests are authenticated with a signed timestamp header. The timestamp *
 | `LOG_RETENTION_DAYS` | No | `90` | Age in days before notification logs and resolved indexer dead letters are pruned daily. Unresolved dead letters are retained. |
 | `NODE_ENV` | No | Unset (treated as development) | Set to `production` to switch logging to structured JSON instead of `pino-pretty`. Set automatically inside the Docker image. |
 | `HEALTH_CHECK_TIMEOUT_MS` | No | `3000` | Maximum duration in milliseconds allowed for each health-check dependency call before it is reported as degraded. |
-| `RESEND_API_KEY` | No (planned) | — | Planned Resend API key for email notifications. Email notifications currently run in log-only stub mode; this variable is planned for future email integration and is not yet read by runtime code. |
-| `NOTIFY_EMAIL_FROM` | No (planned) | — | Planned sender address for Resend email notifications. Not yet read by runtime code. |
+| `RESEND_API_KEY` | No | — | Resend API key used to send NGO contact-email verification messages. Required, together with `NOTIFY_EMAIL_FROM` and `API_PUBLIC_URL`, for verification emails to be sent; other notification events remain in log-only stub mode. |
+| `NOTIFY_EMAIL_FROM` | No | — | Sender address used by Resend for contact-email verification. Required when `RESEND_API_KEY` is configured. |
 | `NOTIFY_EMAIL_TO` | No (planned) | — | Planned recipient address for notification emails. Not yet read by runtime code. |
+| `API_PUBLIC_URL` | No | — | Public HTTPS origin used to build NGO contact-email verification links. Required, together with `RESEND_API_KEY` and `NOTIFY_EMAIL_FROM`, to verify NGO application contact addresses. |
 
 \* Required for the indexer to do anything; the app runs fine without them, but it will not see on-chain events.
 
