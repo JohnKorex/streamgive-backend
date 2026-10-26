@@ -33,6 +33,29 @@ stream, and impact endpoints may return `304 Not Modified` when the
 Unknown routes return `404` with the same body used by every other missing
 resource: `{"error":"not_found"}`.
 
+## HTTP error contract
+
+Error responses are JSON objects with a stable `error` code. Validation
+responses may also include a `details` object; clients should branch on the
+`error` value rather than parse human-readable messages. The table lists the
+codes returned by the API and an example response body for each.
+
+| HTTP status | Error code | Meaning | Example response body |
+| --- | --- | --- | --- |
+| 400 | `invalid_request` | A route parameter, query, or request body failed validation. Some validation errors include `details`. | `{"error":"invalid_request"}` |
+| 400 | `invalid_or_expired_challenge` | An NGO application challenge is missing, expired, or already consumed. | `{"error":"invalid_or_expired_challenge"}` |
+| 401 | `unauthorized` | Admin signature or configured metrics authentication is missing or invalid. | `{"error":"unauthorized"}` |
+| 401 | `invalid_signature` | The signature for an NGO application challenge did not verify. | `{"error":"invalid_signature"}` |
+| 401 | `stale_signature` | The admin timestamp is malformed or outside the permitted clock-skew window. | `{"error":"stale_signature"}` |
+| 401 | `timestamp_unit_mismatch` | The admin timestamp appears to be in seconds; send Unix milliseconds. | `{"error":"timestamp_unit_mismatch"}` |
+| 401 | `replayed_signature` | The same admin address and timestamp have already been used. | `{"error":"replayed_signature"}` |
+| 404 | `not_found` | The requested route or resource does not exist. | `{"error":"not_found"}` |
+| 409 | `already_reviewed` | The NGO application is no longer pending review. | `{"error":"already_reviewed"}` |
+| 409 | `application_already_pending` | An application for this owner is already pending. | `{"error":"application_already_pending"}` |
+| 409 | `already_approved` | This owner already has an approved application. | `{"error":"already_approved"}` |
+| 503 | `admin_auth_not_configured` | Admin-protected routes are unavailable until an admin address is configured. | `{"error":"admin_auth_not_configured"}` |
+| 500 | `internal_server_error` | An unexpected server error occurred; internal details are not returned. | `{"error":"internal_server_error"}` |
+
 ## Caching and conditional requests
 
 Eleven public read endpoints send a validator and a short shared-cache
