@@ -11,23 +11,26 @@ const APPLICATION_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Submission body: `ownerAddress` must be a Stellar G... public key;
- * `name` and `description` are required (1–200 and 1–5000 characters);
- * `contactEmail` is a required email; optional `website` is normalized to
- * HTTPS when scheme-less and must be a URL; optional `country` is at most
- * 100 characters. `challenge` and `signature` prove control of ownerAddress.
+ * `name` and `description` are required (1–200 and 1–5000 characters after
+ * trimming — whitespace-only values are rejected); `contactEmail` is a
+ * required email (max 254 characters per RFC 5321); optional `website` is
+ * normalized to HTTPS when scheme-less, must be a URL, and is capped at 2048
+ * characters; optional `country` is at most 100 characters. `challenge` and
+ * `signature` prove control of ownerAddress.
  */
 const applicationSchema = z.object({
   ownerAddress: z.string().regex(/^G[A-Z2-7]{55}$/),
-  name: z.string().min(1).max(200),
-  description: z.string().min(1).max(5000),
+  name: z.string().trim().min(1).max(200),
+  description: z.string().trim().min(1).max(5000),
   // Normalize scheme-less domains (e.g. "example.org") to "https://example.org"
   // before URL validation so applicants who omit the scheme aren't blocked.
+  // Already-schemed URLs are passed through unchanged to avoid double-prefixing.
   website: z
     .string()
     .transform((val) => (val && !/^https?:\/\//i.test(val) ? `https://${val}` : val))
-    .pipe(z.string().url())
+    .pipe(z.string().url().max(2048))
     .optional(),
-  contactEmail: z.string().email(),
+  contactEmail: z.string().email().max(254),
   country: z.string().max(100).optional(),
 });
 

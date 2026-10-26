@@ -662,14 +662,15 @@ describe('GET /v1/streams/:id/activity', () => {
     });
 
     // Created oldest first so the response order is CANCELLED -> WITHDRAWAL -> TOP_UP.
-    for (const type of ['created', 'withdraw', 'cancel'] as const) {
+    for (const [index, type] of (['TOP_UP', 'WITHDRAWAL', 'CANCELLED'] as const).entries()) {
       await prisma.streamEvent.create({
         data: {
           streamId: stream.onChainId,
           type,
           ledger: 100,
-          txHash: 'a'.repeat(64),
+          txHash: 'aabbcc',
           payload: {},
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
         },
       });
     }
@@ -683,9 +684,9 @@ describe('GET /v1/streams/:id/activity', () => {
     const body = response.json();
     expect(body.events).toHaveLength(3);
     expect(body.events.map((e: { type: string }) => e.type)).toEqual([
-      'cancel',
-      'withdraw',
-      'created',
+      'CANCELLED',
+      'WITHDRAWAL',
+      'TOP_UP',
     ]);
     expect(body.hasMore).toBe(false);
     expect(body.nextCursor).toBeNull();
@@ -749,14 +750,15 @@ describe('GET /v1/streams/:id/activity', () => {
     });
 
     // Created oldest first so newest-first order is CANCELLED, WITHDRAWAL, TOP_UP.
-    for (const type of ['created', 'withdraw', 'cancel'] as const) {
+    for (const [index, type] of (['TOP_UP', 'WITHDRAWAL', 'CANCELLED'] as const).entries()) {
       await prisma.streamEvent.create({
         data: {
           streamId: stream.onChainId,
           type,
           ledger: 100,
-          txHash: 'a'.repeat(64),
+          txHash: 'aabbcc',
           payload: {},
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
         },
       });
     }
@@ -771,8 +773,8 @@ describe('GET /v1/streams/:id/activity', () => {
     expect(firstBody.events).toHaveLength(2);
     expect(firstBody.hasMore).toBe(true);
     expect(firstBody.events.map((e: { type: string }) => e.type)).toEqual([
-      'cancel',
-      'withdraw',
+      'CANCELLED',
+      'WITHDRAWAL',
     ]);
     // nextCursor must be the id of the last event on this page.
     expect(firstBody.nextCursor).toBe(firstBody.events[1].id);
@@ -785,7 +787,7 @@ describe('GET /v1/streams/:id/activity', () => {
     expect(secondPage.statusCode).toBe(200);
     const secondBody = secondPage.json();
     expect(secondBody.events).toHaveLength(1);
-    expect(secondBody.events[0].type).toBe('created');
+    expect(secondBody.events[0].type).toBe('TOP_UP');
     expect(secondBody.hasMore).toBe(false);
     expect(secondBody.nextCursor).toBeNull();
 

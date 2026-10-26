@@ -859,7 +859,7 @@ describe('GET /v1/ngos/:id/donors', () => {
       },
     });
 
-    const unknownCursor = '00000000-0000-4000-8000-000000000099';
+    const unknownCursor = 'ffffffff-ffff-4fff-bfff-ffffffffffff';
     const response = await app.inject({
       method: 'GET',
       url: `/v1/ngos/${ngo.id}/donors?cursor=${unknownCursor}`,
